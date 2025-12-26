@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>My Web Reader</title>
+
+  <!-- Mobile & PWA meta (fullscreen feel on iPhone) -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#111111" />
+
+  <!-- Home screen icon (replace icon.png with your file if you want) -->
+  <link rel="apple-touch-icon" href="icon.png" />
+  <link rel="icon" href="icon.png" />
+
+  <style>
+    /* Basic reset & layout */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      height: 100%;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f3f3f3;
+      color: #222;
+      display: flex;
+      justify-content: center;
+      align-items: stretch;
+      padding: 16px;
+      transition: background 0.2s ease, color 0.2s ease;
+      overflow: hidden; /* lock page scrolling */
+    }
+
+    #app {
+      width: 100%;
+      max-width: 700px;
+      background: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      overflow: hidden;
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+      transition: background 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    header {
+      padding: 16px;
+      border-bottom: 1px solid #e0e0e0;
+      background: #fafafa;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    header h1 {
+      font-size: 1.4rem;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    button {
+      cursor: pointer;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+      background: #fff;
+      padding: 8px 12px;
+      font-size: 0.95rem;
+      transition: background 0.15s, transform 0.05s, color 0.2s ease, border-color 0.2s ease;
+    }
+
+    button:active {
+      transform: scale(0.97);
+    }
+
+    button:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+
+    main {
+      flex: 1;
+      padding: 16px;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    /* Library view */
+    #libraryView {
+      overflow-y: auto; /* library can scroll */
+    }
+
+    .book-card {
+      border-radius: 10px;
+      border: 1px solid #e0e0e0;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      background: #fff;
+      cursor: pointer;
+      transition: background 0.1s, box-shadow 0.1s, transform 0.05s;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .book-card:hover {
+      background: #f7f7ff;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+      transform: translateY(-1px);
+    }
+
+    .book-thumbnail {
+      width: 46px;
+      height: 64px;
+      border-radius: 4px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: flex-start;
+      padding: 4px;
+      color: #fff;
+      font-size: 0.55rem;
+      line-height: 1.2;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      word-break: break-word;
+    }
+
+    .thumb-text {
+      background: linear-gradient(135deg, #d1a56b, #b67b3d);
+    }
+
+    .thumb-pdf {
+      background: linear-gradient(135deg, #5d7bff, #3b4ac9);
+    }
+
+    .book-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .book-title {
+      font-weight: 600;
+      margin-bottom: 4px;
+      font-size: 0.95rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .book-subtitle {
+      font-size: 0.8rem;
+      color: #666;
+    }
+
+    /* Reader view */
+    #readerView {
+      overflow: hidden; /* reader must NOT scroll */
+    }
+
+    .page-container {
+      background: #f7f4ee;
+      border-radius: 12px;
+      border: 1px solid #e0dbc6;
+      padding: 16px;
+      height: 60vh;
+      max-height: 60vh;
+      overflow: hidden;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      transition: background 0.2s ease, border-color 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: manipulation; /* smoother taps/swipes */
+    }
+
+    .page-container canvas {
+      display: block;
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    .page-indicator {
+      font-size: 0.9rem;
+      color: #666;
+    }
+
+    .reader-controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 12px;
+      flex-shrink: 0;
+    }
+
+    .reader-controls-left,
+    .reader-controls-right {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .progress-bar {
+      width: 120px;
+      height: 4px;
+      border-radius: 999px;
+      background: #ddd;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #00b894, #0984e3);
+      transition: width 0.2s ease-out;
+    }
+
+    /* Page fade animation */
+    .page-fade {
+      animation: pageFadeIn 0.18s ease-out;
+    }
+
+    @keyframes pageFadeIn {
+      from {
+        opacity: 0;
+        transform: translateX(4px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    /* Small-screen tweaks (like iPhone) */
+    @media (max-width: 600px) {
+      body {
+        padding: 8px;
+      }
+
+      header h1 {
+        font-size: 1.1rem;
+      }
+
+      .page-container {
+        height: 65vh;
+        max-height: 65vh;
+      }
+    }
+
+    /* --- Dark mode overrides --- */
+    body.dark {
+      background: #111111;
+      color: #f5f5f5;
+    }
+
+    body.dark #app {
+      background: #181818;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    }
+
+    body.dark header {
+      background: #202020;
+      border-bottom-color: #333333;
+    }
+
+    body.dark .book-card {
+      background: #222222;
+      border-color: #333333;
+    }
+
+    body.dark .book-card:hover {
+      background: #262626;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+    }
+
+    body.dark .book-subtitle,
+    body.dark .page-indicator {
+      color: #bbbbbb;
+    }
+
+    body.dark .page-container {
+      background: #1f1b14;
+      border-color: #3b3223;
+    }
+
+    body.dark button {
+      background: #2a2a2a;
+      border-color: #444444;
+      color: #f5f5f5;
+    }
+
+    body.dark button:disabled {
+      opacity: 0.4;
+    }
+
+    body.dark .progress-bar {
+      background: #333;
+    }
+
+    body.dark .progress-bar-fill {
+      background: linear-gradient(90deg, #00cec9, #6c5ce7);
+    }
+  </style>
+
+  <!-- pdf.js from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
+  <script>
+    if (window['pdfjsLib']) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.worker.min.js";
+    }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header>
+      <button id="backButton" class="hidden">&larr;</button>
+      <h1 id="headerTitle">My Library</h1>
+      <button id="importButton" title="Import a text or PDF file">➕ Add Book</button>
+      <button id="themeToggle" title="Toggle dark mode">🌙</button>
+    </header>
+
+    <!-- Hidden file input -->
+    <input
+      type="file"
+      id="fileInput"
+      accept=".txt,text/plain,application/pdf,.pdf"
+      style="display: none;"
+    />
+
+    <!-- Library View -->
+    <main id="libraryView">
+      <p style="margin-bottom: 12px; font-size: 0.9rem; color: #555;">
+        Tap a book to start reading, or use "Add Book" to import a .txt or .pdf file.
+        Text books and your reading position are saved in this browser.
+        PDFs are rendered page-by-page with this app's UI and fit fully inside the page area (no scrolling).
+        In the reader: tap or swipe the left side to go to the previous page, tap or swipe the right side to go to the next page.
+      </p>
+      <div id="libraryList"></div>
+    </main>
+
+    <!-- Reader View -->
+    <main id="readerView" class="hidden">
+      <div class="page-container" id="pageText"></div>
+
+      <div class="reader-controls">
+        <div class="reader-controls-left">
+          <button id="prevPageButton">◀︎ Prev</button>
+          <button id="nextPageButton">Next ▶︎</button>
+        </div>
+
+        <div class="reader-controls-right">
+          <span class="page-indicator" id="pageIndicator">Page 1 / 1</span>
+          <div class="progress-bar">
+            <div class="progress-bar-fill" id="progressFill"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    /************************************************************
+     * 1. Sample books (type: "text")
+     ************************************************************/
+    const sampleBooks = [
+      {
+        id: "sample_book1",
+        type: "text",
+        title: "Welcome to My Reader",
+        pages: [
+`Welcome to your own Kindle-style web reader!
+
+This is page 1 of your first book.
+
+Use the "Next" button or tap/swipe the right side of the page to go forward.
+Use the "Prev" button or tap/swipe the left side to go back.
+
+Your current page will be saved automatically in this browser.`,
+`This is page 2.
+
+What this app can already do:
+• Show a library of books with thumbnails
+• Let you open a book
+• Flip pages with buttons, taps, or swipes
+• Remember your current page for text books
+• Import .txt and .pdf files
+• Render PDFs page-by-page with this UI
+• Fit PDF pages into the reading area (no scrolling)
+• Run as a fullscreen-ish web app on iPhone (Add to Home Screen)
+• Show a progress bar under the page number
+• Fade in each new page`,
+`This is page 3.
+
+Next steps could be:
+• Font-size controls for text
+• Highlights & notes
+• Better TOC / chapter jumps`
+        ]
+      },
+      {
+        id: "sample_book2",
+        type: "text",
+        title: "Second Sample Book",
+        pages: [
+`This is another sample book (page 1).`,
+`This is page 2 of the second book.`
+        ]
+      }
+    ];
+
+    /************************************************************
+     * 2. State
+     ************************************************************/
+    let books = []; // text + pdf
+    let currentBookId = null;
+    let currentPageIndex = 0; // 0-based for both text and pdf
+
+    // Cache of loaded pdf.js documents (not persisted)
+    const pdfDocs = {};
+
+    /************************************************************
+     * 3. DOM Elements
+     ************************************************************/
+    const libraryView = document.getElementById("libraryView");
+    const readerView = document.getElementById("readerView");
+    const libraryList = document.getElementById("libraryList");
+    const pageText = document.getElementById("pageText");
+    const pageIndicator = document.getElementById("pageIndicator");
+    const headerTitle = document.getElementById("headerTitle");
+    const backButton = document.getElementById("backButton");
+    const prevPageButton = document.getElementById("prevPageButton");
+    const nextPageButton = document.getElementById("nextPageButton");
+    const themeToggle = document.getElementById("themeToggle");
+    const importButton = document.getElementById("importButton");
+    const fileInput = document.getElementById("fileInput");
+    const progressFill = document.getElementById("progressFill");
+
+    /************************************************************
+     * 4. Storage keys & helpers
+     ************************************************************/
+    const STORAGE_BOOKS_KEY = "myReader_books_v2";
+    const THEME_KEY = "myReader_theme";
+
+    function getBookById(bookId) {
+      return books.find(b => b.id === bookId);
+    }
+
+    function storageKeyForBook(bookId) {
+      return `myReader_book_${bookId}_pageIndex`;
+    }
+
+    function loadSavedPageIndex(bookId) {
+      const key = storageKeyForBook(bookId);
+      const stored = localStorage.getItem(key);
+      if (stored === null) return 0;
+      const parsed = parseInt(stored, 10);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    }
+
+    function savePageIndex(bookId, pageIndex) {
+      const key = storageKeyForBook(bookId);
+      localStorage.setItem(key, String(pageIndex));
+    }
+
+    /************************************************************
+     * 5. Load/save library (only TEXT books are persisted)
+     ************************************************************/
+    function loadBooksFromStorage() {
+      const stored = localStorage.getItem(STORAGE_BOOKS_KEY);
+      if (!stored) {
+        return [...sampleBooks];
+      }
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          return parsed.map(b => ({
+            type: "text",
+            ...b
+          }));
+        }
+      } catch (e) {
+        console.error("Failed to parse stored books:", e);
+      }
+      return [...sampleBooks];
+    }
+
+    function saveBooksToStorage() {
+      try {
+        const textBooks = books.filter(b => b.type === "text");
+        localStorage.setItem(STORAGE_BOOKS_KEY, JSON.stringify(textBooks));
+      } catch (e) {
+        console.error("Failed to save books:", e);
+      }
+    }
+
+    /************************************************************
+     * 6. Text pagination helper
+     ************************************************************/
+    function paginateText(text, maxCharsPerPage = 2000) {
+      const pages = [];
+      let start = 0;
+      while (start < text.length) {
+        const chunk = text.slice(start, start + maxCharsPerPage);
+        pages.push(chunk.trim());
+        start += maxCharsPerPage;
+      }
+      if (pages.length === 0) {
+        pages.push("(Empty document)");
+      }
+      return pages;
+    }
+
+    /************************************************************
+     * 7. Theme (light / dark)
+     ************************************************************/
+    let currentTheme = "light";
+
+    function applyTheme(theme) {
+      if (theme === "dark") {
+        document.body.classList.add("dark");
+        themeToggle.textContent = "☀️";
+      } else {
+        document.body.classList.remove("dark");
+        themeToggle.textContent = "🌙";
+      }
+    }
+
+    function loadTheme() {
+      const saved = localStorage.getItem(THEME_KEY);
+      if (saved === "dark" || saved === "light") {
+        return saved;
+      }
+      return "light";
+    }
+
+    function initTheme() {
+      currentTheme = loadTheme();
+      applyTheme(currentTheme);
+
+      themeToggle.addEventListener("click", () => {
+        currentTheme = currentTheme === "dark" ? "light" : "dark";
+        localStorage.setItem(THEME_KEY, currentTheme);
+        applyTheme(currentTheme);
+      });
+    }
+
+    /************************************************************
+     * 8. Progress bar helper
+     ************************************************************/
+    function updateProgress(pageIndex, totalPages) {
+      if (!progressFill || !totalPages || totalPages <= 0) {
+        if (progressFill) progressFill.style.width = "0%";
+        return;
+      }
+      const pct = ((pageIndex + 1) / totalPages) * 100;
+      progressFill.style.width = Math.max(0, Math.min(100, pct)) + "%";
+    }
+
+    /************************************************************
+     * 9. Fade helper
+     ************************************************************/
+    function playPageFade() {
+      if (!pageText) return;
+      // Restart animation
+      pageText.classList.remove("page-fade");
+      // Force reflow
+      void pageText.offsetWidth;
+      pageText.classList.add("page-fade");
+    }
+
+    /************************************************************
+     * 10. PDF helpers (pdf.js)
+     ************************************************************/
+    async function loadPdfDocument(book) {
+      if (!window.pdfjsLib) {
+        alert("pdf.js failed to load. Check your internet connection.");
+        throw new Error("pdfjsLib not available");
+      }
+      if (pdfDocs[book.id]) {
+        return pdfDocs[book.id];
+      }
+      const loadingTask = pdfjsLib.getDocument(book.pdfUrl);
+      const pdf = await loadingTask.promise;
+      pdfDocs[book.id] = pdf;
+      return pdf;
+    }
+
+    async function renderPdfPageForBook(book, pageNum) {
+      const pdf = await loadPdfDocument(book);
+      const numPages = pdf.numPages;
+
+      if (pageNum < 1) pageNum = 1;
+      if (pageNum > numPages) pageNum = numPages;
+
+      currentPageIndex = pageNum - 1;
+
+      const page = await pdf.getPage(pageNum);
+
+      const containerWidth = pageText.clientWidth || 600;
+      const containerHeight = pageText.clientHeight || 500;
+
+      const viewport = page.getViewport({ scale: 1 });
+      const widthScale = containerWidth / viewport.width;
+      const heightScale = containerHeight / viewport.height;
+      const scale = Math.min(widthScale, heightScale);
+
+      const scaledViewport = page.getViewport({ scale });
+
+      pageText.innerHTML = '<canvas id="pdfCanvas"></canvas>';
+      const canvas = document.getElementById("pdfCanvas");
+      const context = canvas.getContext("2d");
+
+      canvas.width = scaledViewport.width;
+      canvas.height = scaledViewport.height;
+
+      const renderContext = {
+        canvasContext: context,
+        viewport: scaledViewport
+      };
+
+      await page.render(renderContext).promise;
+
+      pageIndicator.textContent = `Page ${pageNum} / ${numPages}`;
+      prevPageButton.disabled = pageNum <= 1;
+      nextPageButton.disabled = pageNum >= numPages;
+
+      updateProgress(currentPageIndex, numPages);
+      savePageIndex(book.id, currentPageIndex);
+      playPageFade();
+    }
+
+    /************************************************************
+     * 11. Library / Reader switching
+     ************************************************************/
+    function showLibraryView() {
+      currentBookId = null;
+      currentPageIndex = 0;
+
+      headerTitle.textContent = "My Library";
+      backButton.classList.add("hidden");
+      importButton.classList.remove("hidden");   // show Add button on library
+      libraryView.classList.remove("hidden");
+      readerView.classList.add("hidden");
+
+      renderLibrary();
+    }
+
+    function openBook(bookId) {
+      const book = getBookById(bookId);
+      if (!book) return;
+
+      currentBookId = bookId;
+      currentPageIndex = loadSavedPageIndex(bookId);
+
+      headerTitle.textContent = book.title;
+      backButton.classList.remove("hidden");
+      importButton.classList.add("hidden");      // hide Add button in reader
+      libraryView.classList.add("hidden");
+      readerView.classList.remove("hidden");
+
+      renderCurrentPage();
+    }
+
+    /************************************************************
+     * 12. Render functions
+     ************************************************************/
+    function renderLibrary() {
+      libraryList.innerHTML = "";
+
+      books.forEach(book => {
+        const card = document.createElement("div");
+        card.className = "book-card";
+
+        // Thumbnail "cover"
+        const thumb = document.createElement("div");
+        thumb.className = "book-thumbnail " + (book.type === "pdf" ? "thumb-pdf" : "thumb-text");
+        thumb.textContent = book.title.slice(0, 40);
+
+        // Right-side info
+        const info = document.createElement("div");
+        info.className = "book-info";
+
+        const titleEl = document.createElement("div");
+        titleEl.className = "book-title";
+        titleEl.textContent = book.title;
+
+        const subtitleEl = document.createElement("div");
+        subtitleEl.className = "book-subtitle";
+
+        if (book.type === "text") {
+          const savedIndex = loadSavedPageIndex(book.id);
+          const totalPages = book.pages.length;
+          subtitleEl.textContent = `Text • Page ${Math.min(savedIndex + 1, totalPages)} of ${totalPages}`;
+        } else if (book.type === "pdf") {
+          subtitleEl.textContent = `PDF • page-by-page, fit to screen`;
+        } else {
+          subtitleEl.textContent = `Unknown type`;
+        }
+
+        info.appendChild(titleEl);
+        info.appendChild(subtitleEl);
+
+        card.appendChild(thumb);
+        card.appendChild(info);
+
+        card.addEventListener("click", () => openBook(book.id));
+        libraryList.appendChild(card);
+      });
+    }
+
+    async function renderCurrentPage() {
+      const book = getBookById(currentBookId);
+      if (!book) return;
+
+      if (book.type === "pdf") {
+        try {
+          await renderPdfPageForBook(book, currentPageIndex + 1);
+        } catch (e) {
+          console.error(e);
+          pageText.textContent = "Failed to load PDF.";
+          pageIndicator.textContent = "";
+          updateProgress(0, 0);
+        }
+        return;
+      }
+
+      // Text book
+      const totalPages = book.pages.length;
+      pageText.textContent = book.pages[currentPageIndex];
+      pageIndicator.textContent = `Page ${currentPageIndex + 1} / ${totalPages}`;
+
+      prevPageButton.disabled = currentPageIndex === 0;
+      nextPageButton.disabled = currentPageIndex === totalPages - 1;
+
+      updateProgress(currentPageIndex, totalPages);
+      savePageIndex(book.id, currentPageIndex);
+      playPageFade();
+    }
+
+    /************************************************************
+     * 13. Import handler (.txt + .pdf) – auto title from file name
+     ************************************************************/
+    function handleFileSelected(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const name = file.name || "Untitled";
+      const ext = name.split(".").pop().toLowerCase();
+      const defaultTitle = name.replace(/\.[^/.]+$/, "") || "Untitled Book";
+      const title = defaultTitle;
+
+      // TEXT FILES
+      if (ext === "txt" || file.type.startsWith("text/")) {
+        const reader = new FileReader();
+        reader.onload = function (loadEvent) {
+          const text = String(loadEvent.target.result || "");
+          const pages = paginateText(text);
+          const newBook = {
+            id: "text_" + Date.now(),
+            type: "text",
+            title,
+            pages
+          };
+          books.push(newBook);
+          saveBooksToStorage();
+          renderLibrary();
+          fileInput.value = "";
+        };
+        reader.readAsText(file);
+        return;
+      }
+
+      // PDF FILES
+      if (ext === "pdf" || file.type === "application/pdf") {
+        const pdfUrl = URL.createObjectURL(file);
+        const newBook = {
+          id: "pdf_" + Date.now(),
+          type: "pdf",
+          title,
+          pdfUrl
+        };
+        books.push(newBook);
+        renderLibrary();
+        fileInput.value = "";
+        return;
+      }
+
+      alert("This app currently supports .txt and .pdf files. For DOCX/EPUB/etc, convert to TXT or PDF first.");
+      fileInput.value = "";
+    }
+
+    /************************************************************
+     * 14. Tap + Swipe handling for page turns
+     ************************************************************/
+    let pointerDownX = null;
+    let pointerDownY = null;
+    let pointerDownTime = 0;
+
+    function onPagePointerDown(event) {
+      const point = event.touches ? event.touches[0] : event;
+      pointerDownX = point.clientX;
+      pointerDownY = point.clientY;
+      pointerDownTime = Date.now();
+    }
+
+    function onPagePointerUp(event) {
+      const book = getBookById(currentBookId);
+      if (!book) return;
+
+      const point = event.changedTouches ? event.changedTouches[0] : event;
+      const upX = point.clientX;
+      const upY = point.clientY;
+
+      const dx = upX - pointerDownX;
+      const dy = upY - pointerDownY;
+      const dt = Date.now() - pointerDownTime;
+
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
+
+      const SWIPE_DISTANCE = 40; // px
+      const SWIPE_TIME = 600;    // ms max for swipe
+
+      // 1) Check for swipe first (horizontal dominant)
+      if (dt < SWIPE_TIME && absDx > SWIPE_DISTANCE && absDx > absDy) {
+        if (dx < 0) {
+          // swipe left -> next
+          goNextPage();
+        } else {
+          // swipe right -> prev
+          goPrevPage();
+        }
+        return;
+      }
+
+      // 2) Otherwise treat as tap -> left/right zones
+      const rect = pageText.getBoundingClientRect();
+      const relativeX = upX - rect.left;
+      const ratio = relativeX / rect.width;
+
+      // Left 30% = previous, right 30% = next, middle does nothing
+      if (ratio < 0.3) {
+        goPrevPage();
+      } else if (ratio > 0.7) {
+        goNextPage();
+      }
+    }
+
+    function goPrevPage() {
+      const book = getBookById(currentBookId);
+      if (!book) return;
+
+      if (currentPageIndex <= 0) return;
+
+      currentPageIndex--;
+      renderCurrentPage();
+    }
+
+    function goNextPage() {
+      const book = getBookById(currentBookId);
+      if (!book) return;
+
+      if (book.type === "text") {
+        if (currentPageIndex >= book.pages.length - 1) return;
+      }
+      // For PDF, we let renderCurrentPage/pdf clamp the page number if needed
+      currentPageIndex++;
+      renderCurrentPage();
+    }
+
+    /************************************************************
+     * 15. Event listeners
+     ************************************************************/
+    backButton.addEventListener("click", () => {
+      showLibraryView();
+    });
+
+    prevPageButton.addEventListener("click", () => {
+      goPrevPage();
+    });
+
+    nextPageButton.addEventListener("click", () => {
+      goNextPage();
+    });
+
+    importButton.addEventListener("click", () => {
+      fileInput.click();
+    });
+
+    fileInput.addEventListener("change", handleFileSelected);
+
+    // Tap + swipe events (support both pointer and touch for older Safari)
+    pageText.addEventListener("pointerdown", onPagePointerDown);
+    pageText.addEventListener("pointerup", onPagePointerUp);
+
+    pageText.addEventListener("touchstart", onPagePointerDown, { passive: true });
+    pageText.addEventListener("touchend", onPagePointerUp);
+
+    /************************************************************
+     * 16. Initial load
+     ************************************************************/
+    books = loadBooksFromStorage();   // load text books + samples
+    initTheme();
+    showLibraryView();
+  </script>
+</body>
+</html>
