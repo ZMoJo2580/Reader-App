@@ -174,9 +174,24 @@
     .card-main {
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 4px;
       min-width: 0;
       flex: 1;
+    }
+
+    .card-main-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .card-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
     }
 
     .card-title {
@@ -197,7 +212,7 @@
       border-radius: 999px;
       background: rgba(255, 255, 255, 0.06);
       overflow: hidden;
-      margin-top: 3px;
+      margin-top: 1px;
     }
 
     .card-progress-fill {
@@ -205,6 +220,28 @@
       background: linear-gradient(90deg, #f3b13f, #f3843f);
       transform-origin: left center;
       transform: scaleX(0);
+    }
+
+    .card-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .card-delete {
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 11px;
+      cursor: pointer;
+      padding: 4px 6px;
+      border-radius: 999px;
+    }
+
+    .card-delete:hover {
+      color: #ff6666;
+      background: rgba(255, 102, 102, 0.08);
     }
 
     /* ===== READER FULLSCREEN ===== */
@@ -356,8 +393,8 @@
     <main class="library-view">
       <p class="library-hint">
         Tap a book to start reading, or use “Add Book” to import a .txt or .pdf file.
-        Text books and your reading position are saved in this browser. PDFs are rendered
-        page-by-page with no scrolling. In the reader, tap or swipe left/right to change pages.
+        Text books and your reading position are saved in this browser. PDFs are stored
+        on this device using IndexedDB so they’re available between sessions.
       </p>
       <section class="cards" id="booksContainer"></section>
     </main>
@@ -392,10 +429,73 @@
   (function () {
     const STORAGE_KEY = 'myReaderLibrary_v5';
 
-    // in-memory PDF data: id -> base64
-    const pdfDataCache = {};
+    // ===== IndexedDB for PDFs =====
+    const hasIndexedDB = 'indexedDB' in window;
+    let dbPromise = null;
 
-    // DOM refs
+    function getDB() {
+      if (!hasIndexedDB) {
+        return Promise.reject(new Error('IndexedDB not supported in this browser.'));
+      }
+      if (dbPromise) return dbPromise;
+
+      dbPromise = new Promise((resolve, reject) => {
+        const request = indexedDB.open('MyReaderAppDB', 1);
+
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains('pdfBooks')) {
+            db.createObjectStore('pdfBooks', { keyPath: 'id' });
+          }
+        };
+      });
+
+      return dbPromise;
+    }
+
+    async function savePdfData(id, arrayBuffer) {
+      const db = await getDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction('pdfBooks', 'readwrite');
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        const store = tx.objectStore('pdfBooks');
+        store.put({ id, data: arrayBuffer });
+      });
+    }
+
+    async function loadPdfData(id) {
+      const db = await getDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction('pdfBooks', 'readonly');
+        tx.onerror = () => reject(tx.error);
+        const store = tx.objectStore('pdfBooks');
+        const req = store.get(id);
+        req.onsuccess = () => {
+          if (!req.result) {
+            resolve(null);
+          } else {
+            resolve(req.result.data);
+          }
+        };
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function deletePdfData(id) {
+      const db = await getDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction('pdfBooks', 'readwrite');
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        const store = tx.objectStore('pdfBooks');
+        store.delete(id);
+      });
+    }
+
+    // ===== DOM refs =====
     const booksContainer = document.getElementById('booksContainer');
     const fileInput      = document.getElementById('fileInput');
     const addBookBtn     = document.getElementById('addBookBtn');
@@ -418,7 +518,7 @@
         "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
     }
 
-    // ===== STORAGE =====
+    // ===== STORAGE (metadata) =====
     function loadLibrary() {
       try {
         const raw = localStorage.getItem(STORAGE_KEY);
@@ -486,6 +586,12 @@
         const main = document.createElement('div');
         main.className = 'card-main';
 
+        const topRow = document.createElement('div');
+        topRow.className = 'card-main-row';
+
+        const info = document.createElement('div');
+        info.className = 'card-info';
+
         const title = document.createElement('div');
         title.className = 'card-title';
         title.textContent = book.title || 'Untitled';
@@ -499,6 +605,25 @@
           meta.textContent = typeLabel;
         }
 
+        info.appendChild(title);
+        info.appendChild(meta);
+
+        const actions = document.createElement('div');
+        actions.className = 'card-actions';
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'card-delete';
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation(); // don’t open the book
+          deleteBook(book.id);
+        });
+
+        actions.appendChild(deleteBtn);
+
+        topRow.appendChild(info);
+        topRow.appendChild(actions);
+
         const progress = document.createElement('div');
         progress.className = 'card-progress';
         const progressFill = document.createElement('div');
@@ -511,8 +636,7 @@
         progressFill.style.transform = `scaleX(${frac})`;
 
         progress.appendChild(progressFill);
-        main.appendChild(title);
-        main.appendChild(meta);
+        main.appendChild(topRow);
         main.appendChild(progress);
 
         card.appendChild(thumb);
@@ -538,6 +662,36 @@
       fill.style.transform = `scaleX(${frac})`;
     }
 
+    async function deleteBook(bookId) {
+      const idx = library.findIndex(b => b.id === bookId);
+      if (idx === -1) return;
+
+      const book = library[idx];
+      const confirmed = confirm(`Delete "${book.title || 'this book'}" from your library?`);
+      if (!confirmed) return;
+
+      library.splice(idx, 1);
+      saveLibrary();
+      renderLibrary();
+
+      if (book.type === 'pdf' && hasIndexedDB) {
+        try {
+          await deletePdfData(book.id);
+        } catch (err) {
+          console.error('Error deleting PDF data', err);
+        }
+      }
+
+      if (currentBookId === bookId) {
+        readerView.classList.remove('active');
+        libraryShell.classList.remove('hidden');
+        pageSurface.innerHTML = '';
+        currentPdf = null;
+        currentBookId = null;
+        currentPageIndex = 0;
+      }
+    }
+
     // ===== ADD BOOK =====
 
     addBookBtn.addEventListener('click', () => fileInput.click());
@@ -550,12 +704,15 @@
 
           const ext = (file.name.split('.').pop() || '').toLowerCase();
           if (ext === 'pdf') {
+            if (!hasIndexedDB) {
+              alert('This browser does not support persistent PDF storage (IndexedDB). You can still read PDFs, but they will not be remembered after closing the tab.');
+            }
             const arrayBuffer = await file.arrayBuffer();
-            const base64 = arrayBufferToBase64(arrayBuffer);
             const id = `book_${Date.now()}`;
 
-            // store data ONLY in memory
-            pdfDataCache[id] = base64;
+            if (hasIndexedDB) {
+              await savePdfData(id, arrayBuffer);
+            }
 
             const book = {
               id,
@@ -586,26 +743,6 @@
       })();
     });
 
-    function arrayBufferToBase64(buffer) {
-      let binary = '';
-      const bytes = new Uint8Array(buffer);
-      const len = bytes.byteLength;
-      for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      return btoa(binary);
-    }
-
-    function base64ToUint8Array(base64) {
-      const binary = atob(base64);
-      const len = binary.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      return bytes;
-    }
-
     // ===== READER =====
 
     async function openBook(bookId) {
@@ -613,7 +750,7 @@
       if (!book) throw new Error('Book not found');
 
       currentBookId = bookId;
-      currentPageIndex = book.currentPage || 0;
+      currentPageIndex = book.currentPage || 0; // auto-resume
 
       libraryShell.classList.add('hidden');
       readerView.classList.add('active');
@@ -633,13 +770,22 @@
         return;
       }
 
-      const base64 = pdfDataCache[book.id];
-      if (!base64) {
-        alert('PDF data for this book is only stored for the current session. Please re-add the PDF.');
+      let arrayBuffer = null;
+
+      if (hasIndexedDB) {
+        try {
+          arrayBuffer = await loadPdfData(book.id);
+        } catch (err) {
+          console.error('Error loading PDF from IndexedDB', err);
+        }
+      }
+
+      if (!arrayBuffer) {
+        alert('The stored PDF file for this book is missing or was saved with an older version. Please re-add the PDF once – future opens will be remembered.');
         return;
       }
 
-      const data = base64ToUint8Array(base64);
+      const data = new Uint8Array(arrayBuffer);
       const loadingTask = pdfjsLib.getDocument({ data });
       currentPdf = await loadingTask.promise;
 
